@@ -1,0 +1,294 @@
+/* ============ MangaReader 漫画双页阅读组件 ============ */
+
+.manga-reader {
+  --mr-desk: radial-gradient(ellipse at 50% 40%, #3b3f4a 0%, #23262e 70%, #171920 100%);
+  --mr-accent: #e8a33d;
+  --mr-toolbar-bg: rgba(20, 22, 28, 0.85);
+  --mr-toolbar-line: rgba(255, 255, 255, 0.06);
+  --mr-fg: #cfd3dc;
+  --mr-fg-strong: #e6e9f0;
+  --mr-fg-dim: #aab0bd;
+  --mr-btn-bg: rgba(255, 255, 255, 0.06);
+  --mr-btn-line: rgba(255, 255, 255, 0.14);
+  --mr-btn-hover: rgba(255, 255, 255, 0.14);
+  --mr-chip-bg: rgba(0, 0, 0, 0.35);
+  --mr-chip-fg: #fff;
+  /* 书厚（--mr-thick 由 JS 按页数写入） */
+  --mr-thick: 10px;
+  --mr-paper-a: #cfc7b2;
+  --mr-paper-b: #efe8d6;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  background: var(--mr-desk);
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+
+/* ---------- 亮色主题 ---------- */
+.manga-reader[data-theme="light"] {
+  --mr-desk: radial-gradient(ellipse at 50% 38%, #ffffff 0%, #f5f4f1 55%, #e9e8e4 100%);
+  --mr-accent: #b97a1e;
+  --mr-toolbar-bg: rgba(255, 255, 255, 0.82);
+  --mr-toolbar-line: rgba(0, 0, 0, 0.08);
+  --mr-fg: #4c4a44;
+  --mr-fg-strong: #26251f;
+  --mr-fg-dim: #85817a;
+  --mr-btn-bg: rgba(0, 0, 0, 0.045);
+  --mr-btn-line: rgba(0, 0, 0, 0.14);
+  --mr-btn-hover: rgba(0, 0, 0, 0.09);
+  --mr-chip-bg: rgba(255, 255, 255, 0.75);
+  --mr-chip-fg: #3a382f;
+  --mr-paper-a: #b8b09a;
+  --mr-paper-b: #ded7c4;
+}
+
+/* ---------- 舞台 / 书本 ---------- */
+.mr-stage {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(8px, 2.5vh, 28px) clamp(8px, 3vw, 48px);
+  min-height: 0;
+}
+
+.mr-book-wrap {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* 书厚：平装本——左右纸页堆叠边按阅读进度分配（--mr-thick-l/r），随翻页线性过渡 */
+.mr-book-wrap::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 2px;
+  bottom: 2px;
+  left: calc(var(--mr-thick-l, var(--mr-thick)) * -1);
+  right: calc(var(--mr-thick-r, var(--mr-thick)) * -1);
+  border-radius: 2px;
+  background:
+    /* 左纸边：外侧渐暗 + 竖条纹 */
+    linear-gradient(to right, rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0)),
+    repeating-linear-gradient(90deg, var(--mr-paper-a) 0 1px, var(--mr-paper-b) 1px 3px),
+    /* 右纸边 */
+    linear-gradient(to left, rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0)),
+    repeating-linear-gradient(90deg, var(--mr-paper-a) 0 1px, var(--mr-paper-b) 1px 3px);
+  background-position: left center, left center, right center, right center;
+  background-size:
+    max(1px, calc(var(--mr-thick-l, var(--mr-thick)) - 2px)) 94%,
+    max(1px, calc(var(--mr-thick-l, var(--mr-thick)) - 2px)) 94%,
+    max(1px, calc(var(--mr-thick-r, var(--mr-thick)) - 2px)) 94%,
+    max(1px, calc(var(--mr-thick-r, var(--mr-thick)) - 2px)) 94%;
+  background-repeat: no-repeat;
+  transition:
+    left var(--mr-thick-t, 0ms) linear,
+    right var(--mr-thick-t, 0ms) linear,
+    background-size var(--mr-thick-t, 0ms) linear;
+}
+
+.mr-book {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* 书口带：实白，宽度与书厚阴影同步（共用 --mr-shade-l/r）：
+   带宽 = 条基准 × (0.44 + 该侧纸堆占比)，最厚侧约 7.9px、最小可见段约 2.4px（按书厚缩放），
+   完全空的一侧为 0。翻页时随纸堆此消彼长、线性加宽。位于画布之上、边缘阴影之下。 */
+.mr-edge-band {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background:
+    linear-gradient(#fff, #fff) left center / var(--mr-shade-l, 0px) 100% no-repeat,
+    linear-gradient(#fff, #fff) right center / var(--mr-shade-r, 0px) 100% no-repeat;
+  transition: background-size var(--mr-thick-t, 0ms) linear;
+}
+
+/* 书厚边缘阴影：左右外侧纸页堆在页面边缘上的线性投影。
+   常亮显示、不透明度不随翻页淡入淡出；宽度随左右纸堆此消彼长（--mr-shade-l/r）。 */
+.mr-edge-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  background:
+    linear-gradient(to right, rgba(0, 0, 0, 0.20), rgba(0, 0, 0, 0)) left center / var(--mr-shade-l, 1.8%) 100%,
+    linear-gradient(to left, rgba(0, 0, 0, 0.20), rgba(0, 0, 0, 0)) right center / var(--mr-shade-r, 1.8%) 100%;
+  background-repeat: no-repeat;
+  transition: background-size var(--mr-thick-t, 0ms) linear;
+}
+
+/* 书脊阴影：跨两页中间的凹槽效果 */
+.mr-book-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(to right,
+    rgba(0, 0, 0, 0) 49.1%, rgba(0, 0, 0, 0.28) 50%, rgba(0, 0, 0, 0) 50.9%);
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+
+.mr-book-wrap[data-spread="double"].mr-book-wrap::after {
+  opacity: 1;
+}
+
+/* 翻页中隐藏 CSS 书脊：它在画布上层，会浮在卷起的页面上显得"页面透明"。
+   动画期间由引擎内置的书脊阴影接管（绘制层级正确）。 */
+.mr-book-wrap[data-spread="double"].mr-book-wrap.mr-flipping::after {
+  opacity: 0;
+  transition-duration: 0.12s;
+}
+
+/* page-flip 的页面元素基础样式 */
+.mr-book .page {
+  overflow: hidden;
+  background-color: #fdfbf4;
+  background-size: cover;
+  background-position: center;
+}
+
+.mr-page-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mr-page-inner img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+
+/* 未加载完成的占位 */
+.mr-page-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9a978c;
+  font-size: 14px;
+  letter-spacing: 2px;
+  background: #fdfbf4;
+  z-index: 1;
+  transition: opacity 0.25s ease;
+}
+
+.mr-page-loaded .mr-page-loading {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------- 工具栏 ---------- */
+.mr-toolbar {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px 12px;
+  background: var(--mr-toolbar-bg);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid var(--mr-toolbar-line);
+  color: var(--mr-fg);
+  font-size: 13px;
+}
+
+.mr-btn {
+  appearance: none;
+  border: 1px solid var(--mr-btn-line);
+  background: var(--mr-btn-bg);
+  color: var(--mr-fg-strong);
+  border-radius: 7px;
+  padding: 5px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.mr-btn:hover { background: var(--mr-btn-hover); }
+.mr-btn.active {
+  background: var(--mr-accent);
+  border-color: var(--mr-accent);
+  color: #201a0d;
+  font-weight: 600;
+}
+
+.mr-page-indicator {
+  min-width: 90px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+  color: var(--mr-fg-dim);
+}
+
+.mr-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 3px;
+  background: var(--mr-accent);
+  transition: width 0.3s ease;
+  z-index: 21;
+}
+
+/* ---------- 加载遮罩 ---------- */
+.mr-spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 16, 0.55);
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.manga-reader[data-theme="light"] .mr-spinner {
+  background: rgba(240, 236, 226, 0.6);
+}
+
+.mr-spinner.mr-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mr-spinner::after {
+  content: "";
+  width: 38px;
+  height: 38px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--mr-accent);
+  border-radius: 50%;
+  animation: mr-spin 0.8s linear infinite;
+}
+
+.manga-reader[data-theme="light"] .mr-spinner::after {
+  border-color: rgba(0, 0, 0, 0.12);
+  border-top-color: var(--mr-accent);
+}
+
+@keyframes mr-spin { to { transform: rotate(360deg); } }
+

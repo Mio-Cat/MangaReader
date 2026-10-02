@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MangaReader · 漫画双页 3D 翻页组件 Demo</title>
+  <link rel="stylesheet" href="./src/manga-reader.css" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #171920; }
+    #app { height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    import { MangaReader } from './src/manga-reader.js';
+
+    // 控件由页面自己定义：按钮用 data-act（组件内部委托路由到 API），
+    // .mr-page-indicator/.mr-progress 挂在组件 root 内则会被组件自动同步。
+    function attachToolbar(reader) {
+      const bar = document.createElement('div');
+      bar.className = 'mr-toolbar';
+      bar.innerHTML = `
+        <div class="mr-progress"></div>
+        <button class="mr-btn" data-act="first">封面</button>
+        <button class="mr-btn" data-act="prev">上一页</button>
+        <span class="mr-page-indicator">加载中…</span>
+        <button class="mr-btn" data-act="next">下一页</button>
+        <button class="mr-btn" data-act="last">尾章</button>
+        <button class="mr-btn" data-act="spread">双页</button>
+        <button class="mr-btn" data-act="dir">右翻 · 日漫</button>
+        <button class="mr-btn" data-act="theme">亮色</button>
+      `;
+      reader.root.appendChild(bar);
+      const refresh = () => {
+        bar.querySelector('[data-act="spread"]').textContent =
+          reader._activeSingle ? '单页' : '双页';
+        bar.querySelector('[data-act="dir"]').textContent =
+          reader.opts.rtl ? '右翻 · 日漫' : '左翻 · 欧美';
+        bar.querySelector('[data-act="theme"]').textContent =
+          reader.root.dataset.theme === 'light' ? '暗色' : '亮色';
+      };
+      // 按钮动作由组件 root 委托处理；这里在动作后同步按钮文案
+      bar.addEventListener('click', () => setTimeout(refresh, 0));
+      refresh();
+    }
+
+    function measureRatio(url) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img.naturalWidth / img.naturalHeight);
+        img.onerror = () => resolve(0.707);
+        img.src = url;
+      });
+    }
+
+    async function realSource() {
+      const res = await fetch('/api/manga');
+      if (!res.ok) return null;
+      const files = await res.json();
+      if (!files.length) return null;
+      const pages = files.map((f) => '/manga/' + encodeURIComponent(f));
+      const ratio = await measureRatio(pages[0]);
+      return new MangaReader(document.getElementById('app'), {
+        pages, ratio,
+        cover: null, back: null,
+        rtl: true, spread: 'auto',
+      });
+    }
+
+    window.reader = await realSource();
+    attachToolbar(window.reader);
+  </script>
+</body>
+</html>
