@@ -19,15 +19,15 @@ node server.js        # http://localhost:5180
 
 ```html
 <script type="module">
-  import { MangaReader } from './dist/manga-reader.esm.js';
+  import { MangaReader } from 'https://cdn.jsdelivr.net/gh/Mio-Cat/MangaReader@main/dist/manga-reader.esm.js';
 ```
 
 方式二：源码形态（需自行引 CSS）
 
 ```html
-<link rel="stylesheet" href="./src/manga-reader.css" />
+<link rel="stylesheet" href=".https://cdn.jsdelivr.net/gh/Mio-Cat/MangaReader@main/src/manga-reader.css" />
 <script type="module">
-  import { MangaReader } from './src/manga-reader.js';
+  import { MangaReader } from 'https://cdn.jsdelivr.net/gh/Mio-Cat/MangaReader@main/src/manga-reader.js';
 ```
 
 两种方式的构造用法一致：
@@ -73,7 +73,7 @@ node server.js        # http://localhost:5180
 
 内置 `.mr-toolbar / .mr-btn / .mr-progress / .mr-page-indicator` 为约定控件样式，可供外部控件复用。
 
-## 日漫 RTL 实现要点
+## 日漫 RTL 实现
 
 原 page-flip 无 rtl 选项，组件采用双重镜像：书本容器 `scaleX(-1)` 镜像（并补丁其内部
 `getMousePos` 指针坐标）× 每张图像离屏 canvas 水平预镜像。两者相抵后页面内容为原始正像，同时保留镜像带来的日漫几何与动画方向——封面在右、左页向右卷起翻至下一页。
