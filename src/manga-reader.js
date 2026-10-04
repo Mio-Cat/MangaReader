@@ -46,6 +46,7 @@ export class MangaReader {
     this._down = null;
     this._foldMove = null;
     this._foldDriven = false;
+    this._flipState = 'read';
     this._spineTimer = 0;
     this._mirrorCache = new Map(); // 原 url -> 预镜像 blob url（RTL 用，缓存复用）
     this._prepSeq = 0;
@@ -150,6 +151,9 @@ export class MangaReader {
       const moved = Math.hypot(e.clientX - this._down.x, e.clientY - this._down.y);
       this._down = null;
       if (moved > 10 || !this.flip) return;
+      // 页角区域的点击引擎自己会翻（disableFlipByClick 只拦非页角），
+      // 此刻已进入 flipping/user_fold → 热区再翻就成双跳了
+      if (this._flipState !== 'read') return;
       const r = this.stage.getBoundingClientRect();
       const fx = (e.clientX - r.left) / r.width;
       if (fx < 0.32) this.opts.rtl ? this.next() : this.prev();
@@ -340,6 +344,11 @@ export class MangaReader {
     });
 
     this.flip.loadFromImages(urls);
+    // 引擎无条件绘制画布书脊投影（drawBookShadow）；单页 portrait 下它被
+    // clip 到可见页缘，表现为贴边暗带——单页模式跳过绘制。
+    const render = this.flip.render;
+    const origBookShadow = render.drawBookShadow.bind(render);
+    render.drawBookShadow = () => { if (!this._activeSingle) origBookShadow(); };
     this._applyRtlMirror();
     // 过渡时长默认 0ms：加载期引擎也会派发 flip/重算，只有真实翻页状态才临时开启
     // （见 _enableEdgeTransition），避免刷新时书口条/白边/阴影出现动画。
@@ -509,6 +518,7 @@ export class MangaReader {
    * - 静止(read)：恢复书脊
    */
   _onFlipState(state) {
+    this._flipState = state;
     if (state === 'user_fold') {
       this._enableEdgeTransition();
       this._foldDriven = true;

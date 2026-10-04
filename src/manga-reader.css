@@ -101,32 +101,44 @@
   height: 100%;
 }
 
-/* 书口带：实白，宽度与书厚阴影同步（共用 --mr-shade-l/r）：
-   带宽 = 条基准 × (0.44 + 该侧纸堆占比)，最厚侧约 7.9px、最小可见段约 2.4px（按书厚缩放），
-   完全空的一侧为 0。翻页时随纸堆此消彼长、线性加宽。位于画布之上、边缘阴影之下。 */
+/* 书口带：实白，紧挨书本左右外缘（负 inset 外扩，不遮页面），宽度与书厚阴影同步
+   （共用 --mr-shade-l/r）：完全空的一侧为 0，翻页时随纸堆此消彼长、线性加宽。
+   位于纸页条纹之上、边缘阴影之下。 */
 .mr-edge-band {
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--mr-shade-l, 0px) * -1);
+  right: calc(var(--mr-shade-r, 0px) * -1);
   z-index: 5;
   pointer-events: none;
   background:
     linear-gradient(#fff, #fff) left center / var(--mr-shade-l, 0px) 100% no-repeat,
     linear-gradient(#fff, #fff) right center / var(--mr-shade-r, 0px) 100% no-repeat;
-  transition: background-size var(--mr-thick-t, 0ms) linear;
+  transition:
+    left var(--mr-thick-t, 0ms) linear,
+    right var(--mr-thick-t, 0ms) linear,
+    background-size var(--mr-thick-t, 0ms) linear;
 }
 
-/* 书厚边缘阴影：左右外侧纸页堆在页面边缘上的线性投影。
-   常亮显示、不透明度不随翻页淡入淡出；宽度随左右纸堆此消彼长（--mr-shade-l/r）。 */
+/* 书厚边缘阴影：左右外侧纸页堆的线性投影，外缘最暗向书边渐隐。
+   同样贴书本外侧，不遮盖页面；宽度随左右纸堆此消彼长（--mr-shade-l/r）。 */
 .mr-edge-shade {
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--mr-shade-l, 0px) * -1);
+  right: calc(var(--mr-shade-r, 0px) * -1);
   z-index: 6;
   pointer-events: none;
   background:
     linear-gradient(to right, rgba(0, 0, 0, 0.20), rgba(0, 0, 0, 0)) left center / var(--mr-shade-l, 1.8%) 100%,
     linear-gradient(to left, rgba(0, 0, 0, 0.20), rgba(0, 0, 0, 0)) right center / var(--mr-shade-r, 1.8%) 100%;
   background-repeat: no-repeat;
-  transition: background-size var(--mr-thick-t, 0ms) linear;
+  transition:
+    left var(--mr-thick-t, 0ms) linear,
+    right var(--mr-thick-t, 0ms) linear,
+    background-size var(--mr-thick-t, 0ms) linear;
 }
 
 /* 书脊阴影：跨两页中间的凹槽效果 */
@@ -150,6 +162,17 @@
 .mr-book-wrap[data-spread="double"].mr-book-wrap.mr-flipping::after {
   opacity: 0;
   transition-duration: 0.12s;
+}
+
+/* 单页模式：无跨页书堆消长，书口带、边缘阴影、纸页条纹都不需要
+   （CSS 书脊 ::after 已由 data-spread="double" 门控自动隐藏） */
+.mr-book-wrap[data-spread="single"] .mr-edge-band,
+.mr-book-wrap[data-spread="single"] .mr-edge-shade {
+  display: none;
+}
+
+.mr-book-wrap[data-spread="single"]::before {
+  display: none;
 }
 
 /* page-flip 的页面元素基础样式 */
