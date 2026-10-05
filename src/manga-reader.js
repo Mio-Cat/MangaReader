@@ -26,6 +26,8 @@ export const DEFAULTS = {
   hotzones: true,        // 点击屏幕左右 30% 翻页
   keyboard: true,
   wheel: true,
+  lazyLoad: true,        // 惰性加载：仅当前页前后窗口内加载真实图，边看边补
+  lazyWindow: 5,         // 窗口半径（页/张，两侧各 N 张）
   theme: 'auto',         // 'dark' | 'light' | 'auto'（跟随系统）
   pageThickness: 0.32,   // 书厚像素/页（两侧纸边堆叠效果）
   onStateChange: null,   // (state: 'user_fold'|'fold_corner'|'flipping'|'read') => void
@@ -33,6 +35,9 @@ export const DEFAULTS = {
 };
 
 let uid = 0;
+
+// 1px 透明图：非窗口的页先挂它，滑动窗口推进时再换成真实 src
+const PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 export class MangaReader {
   constructor(root, options = {}) {
@@ -50,6 +55,10 @@ export class MangaReader {
     this._spineTimer = 0;
     this._mirrorCache = new Map(); // 原 url -> 预镜像 blob url（RTL 用，缓存复用）
     this._prepSeq = 0;
+    this._baseUrls = null;         // 引擎顺序的原始 url（含封面/封底）
+    this._realUrls = null;         // 惰性加载：null=未就绪，非 null=已就绪的真实 src
+    this._fillPending = new Set(); // 正在预镜像中的引擎索引
+    this._lastRtl = null;          // 上次建引擎时的方向（换向需作废旧镜像）
 
     this._buildShell();
     this._bindGlobalEvents();
@@ -253,17 +262,87 @@ export class MangaReader {
   async _boot() {
     this._showSpinner(true);
     this._layout();
-    const list = this._orderedUrls();
+    this._baseUrls = this._orderedUrls();
+    if (this.opts.lazyLoad) {
+      this._realUrls = new Array(this._baseUrls.length).fill(null);
+      // 首窗口（约 lazyWindow+1 张）同步备好再建引擎：首屏无加载空档，其余边看边补
+      try {
+        await Promise.all(
+          this._baseUrls.slice(0, this.opts.lazyWindow + 1)
+            .map((_, i) => this._materialize(i))
+        );
+      } catch {
+        console.warn('[MangaReader] 部分图片加载失败，仍继续渲染');
+      }
+      if (this.destroyed) return;
+      this._initFlip(this._engineUrls());
+      this._showSpinner(false);
+      return;
+    }
     try {
-      await Promise.all(list.map((u) => this._preload(u)));
+      await Promise.all(this._baseUrls.map((u) => this._preload(u)));
     } catch {
       console.warn('[MangaReader] 部分图片加载失败，仍继续渲染');
     }
     if (this.destroyed) return;
-    const urls = await this._prepareUrls(list);
+    const urls = await this._prepareUrls(this._baseUrls);
     if (this.destroyed) return;
     this._initFlip(urls);
     this._showSpinner(false);
+  }
+
+  /** 惰性模式：给引擎的 src 数组（未就绪的页用占位符） */
+  _engineUrls() {
+    return this._baseUrls.map((_, i) => this._realUrls[i] || PLACEHOLDER);
+  }
+
+  /** 把引擎索引 i 的页换成真实 src（RTL 走预镜像），返回就绪 Promise */
+  _materialize(i) {
+    if (!this._baseUrls || this._realUrls[i] || this._fillPending.has(i)) {
+      return Promise.resolve();
+    }
+    const base = this._baseUrls[i];
+    if (!this.opts.rtl) {
+      this._setReal(i, base); // 下载由引擎的 img 元素自己触发
+      return Promise.resolve();
+    }
+    const hit = this._mirrorCache.get(base);
+    if (hit) {
+      this._setReal(i, hit);
+      return Promise.resolve();
+    }
+    this._fillPending.add(i);
+    const rtlAtStart = this.opts.rtl;
+    return this._prepareUrl(base)
+      .then((url) => {
+        // 结果按请求时的方向作废：等待期间换过向就不再采用（旧模式镜像不适用新模式）
+        if (this.destroyed || this.opts.rtl !== rtlAtStart) return;
+        this._setReal(i, url);
+      })
+      .finally(() => this._fillPending.delete(i));
+  }
+
+  _setReal(i, url) {
+    this._realUrls[i] = url;
+    if (!this.flip) return; // 引擎尚未建立/重建中：_engineUrls() 初始化时自然带上
+    let pg = null;
+    try { pg = this.flip.getPage(i); } catch { /* 越界忽略 */ }
+    const img = pg && pg.image;
+    if (!img || img.getAttribute('src') === url) return;
+    pg.isLoad = false; // 交给引擎的未加载态（不画空图）
+    img.addEventListener('load', () => {
+      if (!this.destroyed) this.flip?.update(); // 引擎 onload 只置 isLoad，需手动重绘
+    }, { once: true });
+    img.src = url;
+  }
+
+  /** 以当前页为中心，把 ±lazyWindow 内的页排队就绪 */
+  _fillWindow() {
+    if (!this.opts.lazyLoad || !this.flip || !this._realUrls) return;
+    const center = this.flip.getCurrentPageIndex();
+    const lo = Math.max(0, center - this.opts.lazyWindow);
+    const hi = Math.min(this._baseUrls.length - 1, center + this.opts.lazyWindow);
+    for (let i = lo; i <= hi; i++) this._materialize(i);
   }
 
   /** RTL 下把每张图换成预镜像版本（缓存命中则同步返回） */
@@ -344,6 +423,7 @@ export class MangaReader {
     });
 
     this.flip.loadFromImages(urls);
+    this._lastRtl = this.opts.rtl;
     // 引擎无条件绘制画布书脊投影（drawBookShadow）；单页 portrait 下它被
     // clip 到可见页缘，表现为贴边暗带——单页模式跳过绘制。
     const render = this.flip.render;
@@ -380,6 +460,14 @@ export class MangaReader {
     this._activeSingle = this._isSingleMode();
     const cur = this._currentLogical();
     this._layoutSizesOnly();
+    if (this.opts.lazyLoad) {
+      if (this.opts.rtl !== this._lastRtl) {
+        this._realUrls.fill(null); // 换向：旧模式的镜像/原图全部作废，重备窗口
+      }
+      this._initFlip(this._engineUrls());
+      if (cur != null) this.goToPage(cur);
+      return;
+    }
     const seq = ++this._prepSeq;
     this._prepareUrls(this._orderedUrls()).then((urls) => {
       if (this.destroyed || seq !== this._prepSeq) return; // 过期的重建请求
@@ -466,6 +554,7 @@ export class MangaReader {
     const sheets = this._sheets();
     const c = idx - this._coverOffset();
     const nums = this._logicalsAt(c);
+    this._fillWindow();
 
     let label;
     if (nums.length === 0) {

@@ -42,6 +42,8 @@ node server.js        # http://localhost:5180
     ratio: 0.707,                       // 单页宽高比 w/h
     theme: 'auto',                      // dark | light | auto(跟随系统)
     pageThickness: 0.32,                // 书厚像素/页（两侧纸边堆叠）
+    lazyLoad: true,                     // 惰性加载（默认开，详见 API 表）
+    lazyWindow: 5,                      // 惰性加载窗口半径（两侧各预取张数）
     onPageChange: ({ logical, display, progress }) => console.log(display),
   });
 ```
@@ -57,6 +59,8 @@ node server.js        # http://localhost:5180
 | `destroy()` | 销毁实例 |
 | `onStateChange(state)` | 翻页状态 `user_fold/fold_corner/flipping/read` |
 | `onPageChange(info)` | 页码变化 `{logical, display, progress}` |
+| `lazyLoad: true` | 惰性加载：可边看边载入图片，避免首次长时间加载，翻页时自动扩窗 |
+| `lazyWindow: 5` | 惰性加载窗口半径（两侧各预取的张数） |
 
 内置交互：拖拽页角（跟手，过半自动完成/回弹）、点击左右 30% 区域、`← →` 方向键、空格、滚轮。
 
